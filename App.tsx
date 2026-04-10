@@ -53,15 +53,30 @@ const App: React.FC = () => {
   const [userPin, setUserPin] = useState<string | null>(null);
   const [isPinVerified, setIsPinVerified] = useState(false);
   const [isPinLoading, setIsPinLoading] = useState(true);
+  const [isDataLoading, setIsDataLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   
-  const [state, setState] = useState<AppState>({
-    customers: [],
-    transactions: [],
-    totalReceivable: 0,
-    totalPayable: 0
-  });
+  const [rawCustomers, setRawCustomers] = useState<Customer[]>([]);
+  const [rawTransactions, setRawTransactions] = useState<Transaction[]>([]);
+
+  const state = useMemo(() => {
+    return dbService.calculateBalances(rawCustomers, rawTransactions);
+  }, [rawCustomers, rawTransactions]);
 
   const t = TRANSLATIONS.bn;
+
+  // Online/Offline Listener
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Auth Listener
   useEffect(() => {
@@ -72,12 +87,8 @@ const App: React.FC = () => {
       setIsAuthReady(true);
       
       if (!u) {
-        setState({
-          customers: [],
-          transactions: [],
-          totalReceivable: 0,
-          totalPayable: 0
-        });
+        setRawCustomers([]);
+        setRawTransactions([]);
         setUserPin(null);
         setIsPinVerified(false);
         setIsPinLoading(false);
@@ -136,26 +147,31 @@ const App: React.FC = () => {
 
   // Firestore Sync
   useEffect(() => {
-    if (!user || !isAuthReady) return;
+    if (!user || !isAuthReady) {
+      setRawCustomers([]);
+      setRawTransactions([]);
+      setIsDataLoading(false);
+      return;
+    }
 
+    setIsDataLoading(true);
     const customersQuery = query(collection(db, 'customers'), where('ownerUid', '==', user.uid));
     const transactionsQuery = query(collection(db, 'transactions'), where('ownerUid', '==', user.uid));
 
-    let customersData: Customer[] = [];
-    let transactionsData: Transaction[] = [];
+    const unsubCustomers = onSnapshot(customersQuery, { includeMetadataChanges: true }, (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Customer);
+      setRawCustomers(data);
+      setIsSyncing(snapshot.metadata.hasPendingWrites);
+      setIsDataLoading(false);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'customers');
+      setIsDataLoading(false);
+    });
 
-    const updateState = () => {
-      setState(dbService.calculateBalances(customersData, transactionsData));
-    };
-
-    const unsubCustomers = onSnapshot(customersQuery, (snapshot) => {
-      customersData = snapshot.docs.map(doc => doc.data() as Customer);
-      updateState();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'customers'));
-
-    const unsubTransactions = onSnapshot(transactionsQuery, (snapshot) => {
-      transactionsData = snapshot.docs.map(doc => doc.data() as Transaction);
-      updateState();
+    const unsubTransactions = onSnapshot(transactionsQuery, { includeMetadataChanges: true }, (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Transaction);
+      setRawTransactions(data);
+      setIsSyncing(snapshot.metadata.hasPendingWrites);
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'transactions'));
 
     return () => {
@@ -163,6 +179,36 @@ const App: React.FC = () => {
       unsubTransactions();
     };
   }, [user, isAuthReady]);
+
+  // Local Data Migration
+  useEffect(() => {
+    if (!user || !isAuthReady || isDataLoading) return;
+
+    const migrateLocalData = async () => {
+      const localData = dbService.loadData();
+      if (localData.customers.length > 0 && rawCustomers.length === 0) {
+        if (confirm('আপনার ফোনে কিছু অফলাইন ডাটা পাওয়া গেছে। আপনি কি এগুলো আপনার গুগল অ্যাকাউন্টে সিঙ্ক করতে চান?')) {
+          try {
+            const batch = writeBatch(db);
+            localData.customers.forEach(c => {
+              batch.set(doc(db, 'customers', c.id), { ...c, ownerUid: user.uid });
+            });
+            localData.transactions.forEach(t => {
+              batch.set(doc(db, 'transactions', t.id), { ...t, ownerUid: user.uid });
+            });
+            await batch.commit();
+            // Clear local storage after migration
+            dbService.saveData({ customers: [], transactions: [], totalReceivable: 0, totalPayable: 0 });
+            alert('সফলভাবে সিঙ্ক করা হয়েছে!');
+          } catch (err) {
+            console.error('Migration failed:', err);
+          }
+        }
+      }
+    };
+
+    migrateLocalData();
+  }, [user, isAuthReady, isDataLoading, rawCustomers.length]);
 
   const login = async () => {
     try {
@@ -340,11 +386,11 @@ const App: React.FC = () => {
   [selectedCustomerId, state.customers]);
 
   const renderContent = () => {
-    if (!isAuthReady || (user && isPinLoading)) {
+    if (!isAuthReady || (user && (isPinLoading || isDataLoading))) {
       return (
         <div className="flex flex-col items-center justify-center h-full py-20">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#006A4E]"></div>
-          <p className="mt-4 text-sm text-gray-500">অপেক্ষা করুন...</p>
+          <p className="mt-4 text-sm text-gray-500">ডাটা লোড হচ্ছে...</p>
         </div>
       );
     }
@@ -444,6 +490,17 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen max-w-md mx-auto bg-gray-50 shadow-xl overflow-hidden relative">
+      {/* Sync Status Bar */}
+      {user && isPinVerified && (
+        <div className={`px-4 py-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest transition-colors duration-500 ${isOnline ? (isSyncing ? 'bg-blue-500 text-white' : 'bg-green-600 text-white') : 'bg-gray-400 text-white'}`}>
+          <div className="flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-white animate-pulse' : 'bg-white opacity-50'}`} />
+            {isOnline ? (isSyncing ? 'সিঙ্ক হচ্ছে...' : 'অনলাইন') : 'অফলাইন'}
+          </div>
+          <div>সবার খাতা</div>
+        </div>
+      )}
+
       <main className="flex-1 overflow-y-auto pb-24">
         {renderContent()}
       </main>

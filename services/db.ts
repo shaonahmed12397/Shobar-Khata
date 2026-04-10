@@ -34,7 +34,7 @@ export const dbService = {
       if (balance > 0) totalReceivable += balance;
       else totalPayable += Math.abs(balance);
 
-      return { ...customer, balance, lastUpdated: Date.now() };
+      return { ...customer, balance };
     });
 
     return {
