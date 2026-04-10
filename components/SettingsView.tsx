@@ -7,12 +7,10 @@ interface SettingsViewProps {
   state: AppState;
   onRestore: (data: AppState) => void;
   onClear: () => void;
-  user: any;
-  onLogout: () => void;
-  onResetPin: () => void;
+  onLock: () => void;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ state, onRestore, onClear, user, onLogout, onResetPin }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ state, onRestore, onClear, onLock }) => {
   const t = TRANSLATIONS.bn;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,52 +56,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ state, onRestore, onClear, 
     <div className="p-4 space-y-6 animate-in fade-in duration-300">
       <h2 className="text-2xl font-bold text-gray-800">সেটিংস ও ব্যাকআপ</h2>
 
-      {/* User Profile */}
-      {user && (
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="User" className="w-12 h-12 rounded-full border-2 border-green-50" />
-            <div>
-              <h3 className="font-bold text-gray-800">{user.displayName}</h3>
-              <p className="text-xs text-gray-400">{user.email}</p>
-            </div>
-          </div>
-          <button 
-            onClick={onLogout}
-            className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-            title="লগআউট"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
-        </div>
-      )}
-
       <div className="space-y-4">
-        {/* PIN Section */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-4">
-          <div className="flex items-center gap-3 text-orange-600">
-            <div className="p-2 bg-orange-50 rounded-xl">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-            </div>
-            <h3 className="font-bold text-lg">সিকিউরিটি পিন</h3>
-          </div>
-          <p className="text-sm text-gray-500">আপনার অ্যাপের নিরাপত্তা নিশ্চিত করতে ৪ ডিজিটের পিন কোড পরিবর্তন করুন।</p>
-          <button 
-            onClick={() => {
-              if (confirm('আপনি কি পিন কোড পরিবর্তন করতে চান? এটি করলে আপনাকে পুনরায় পিন সেট করতে হবে।')) {
-                onResetPin();
-              }
-            }}
-            className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            পিন পরিবর্তন করুন
-          </button>
-        </div>
-
         {/* Backup Section */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-4">
           <div className="flex items-center gap-3 text-[#006A4E]">
@@ -147,6 +100,39 @@ const SettingsView: React.FC<SettingsViewProps> = ({ state, onRestore, onClear, 
           >
             ব্যাকআপ ফাইল আপলোড করুন
           </button>
+        </div>
+
+        {/* PIN Security Section */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-4">
+          <div className="flex items-center gap-3 text-purple-600">
+            <div className="p-2 bg-purple-50 rounded-xl">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h3 className="font-bold text-lg">নিরাপত্তা (PIN)</h3>
+          </div>
+          <p className="text-sm text-gray-500">অ্যাপের নিরাপত্তা নিশ্চিত করতে পিন কোড পরিবর্তন করুন অথবা অ্যাপটি এখনই লক করুন।</p>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <button 
+              onClick={() => {
+                if (confirm('আপনি কি পিন কোড পরিবর্তন করতে চান?')) {
+                  localStorage.removeItem('sobar_khata_pin');
+                  onLock();
+                }
+              }}
+              className="py-3 bg-purple-50 text-purple-700 rounded-2xl font-bold border border-purple-100 active:scale-95 transition-all"
+            >
+              পিন পরিবর্তন
+            </button>
+            <button 
+              onClick={onLock}
+              className="py-3 bg-gray-50 text-gray-700 rounded-2xl font-bold border border-gray-100 active:scale-95 transition-all"
+            >
+              এখনই লক করুন
+            </button>
+          </div>
         </div>
 
         {/* Danger Zone */}
