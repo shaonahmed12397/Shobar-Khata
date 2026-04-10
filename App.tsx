@@ -12,9 +12,35 @@ import AddTransactionModal from './components/AddTransactionModal';
 import AddCustomerModal from './components/AddCustomerModal';
 import EditTransactionModal from './components/EditTransactionModal';
 import EditCustomerModal from './components/EditCustomerModal';
+import SettingsView from './components/SettingsView';
+import PinEntry from './components/PinEntry';
+import { 
+  auth, 
+  db, 
+  googleProvider, 
+  handleFirestoreError, 
+  OperationType 
+} from './firebase';
+import { 
+  signInWithPopup, 
+  onAuthStateChanged, 
+  signOut, 
+  User as FirebaseUser 
+} from 'firebase/auth';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc,
+  onSnapshot, 
+  query, 
+  where, 
+  deleteDoc,
+  writeBatch
+} from 'firebase/firestore';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'home' | 'customers' | 'reports'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'customers' | 'reports' | 'settings'>('home');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
@@ -22,82 +48,286 @@ const App: React.FC = () => {
   const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
   const [txModalType, setTxModalType] = useState<TransactionType>('CREDIT');
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [userPin, setUserPin] = useState<string | null>(null);
+  const [isPinVerified, setIsPinVerified] = useState(false);
+  const [isPinLoading, setIsPinLoading] = useState(true);
   
-  const [state, setState] = useState<AppState>(() => dbService.loadData());
+  const [state, setState] = useState<AppState>({
+    customers: [],
+    transactions: [],
+    totalReceivable: 0,
+    totalPayable: 0
+  });
 
   const t = TRANSLATIONS.bn;
 
-  // Sync with localStorage
+  // Auth Listener
   useEffect(() => {
-    dbService.saveData(state);
-  }, [state]);
+    let unsubUserDoc: (() => void) | null = null;
 
-  const addCustomer = (name: string, phone: string) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+      
+      if (!u) {
+        setState({
+          customers: [],
+          transactions: [],
+          totalReceivable: 0,
+          totalPayable: 0
+        });
+        setUserPin(null);
+        setIsPinVerified(false);
+        setIsPinLoading(false);
+        if (unsubUserDoc) unsubUserDoc();
+      } else {
+        setIsPinLoading(true);
+        // Use onSnapshot for the user document to ensure it's cached and reactive
+        unsubUserDoc = onSnapshot(doc(db, 'users', u.uid), async (snapshot) => {
+          if (snapshot.exists()) {
+            setUserPin(snapshot.data().pin || null);
+            setIsPinLoading(false);
+          } else {
+            // Create user doc if it doesn't exist
+            try {
+              const newUser = {
+                uid: u.uid,
+                email: u.email || '',
+                displayName: u.displayName || '',
+                photoURL: u.photoURL || '',
+                createdAt: Date.now()
+              };
+              await setDoc(doc(db, 'users', u.uid), newUser);
+              // snapshot will trigger again
+            } catch (err) {
+              console.error('Error creating user doc:', err);
+              setIsPinLoading(false);
+            }
+          }
+        }, (err) => {
+          console.error('Error listening to user doc:', err);
+          setIsPinLoading(false);
+        });
+      }
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubUserDoc) unsubUserDoc();
+    };
+  }, []);
+
+  const handlePinSuccess = async (pin: string) => {
+    if (!user) return;
+    
+    if (!userPin) {
+      // First time setting up PIN
+      try {
+        await setDoc(doc(db, 'users', user.uid), { pin }, { merge: true });
+        setUserPin(pin);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
+      }
+    }
+    setIsPinVerified(true);
+  };
+
+  // Firestore Sync
+  useEffect(() => {
+    if (!user || !isAuthReady) return;
+
+    const customersQuery = query(collection(db, 'customers'), where('ownerUid', '==', user.uid));
+    const transactionsQuery = query(collection(db, 'transactions'), where('ownerUid', '==', user.uid));
+
+    let customersData: Customer[] = [];
+    let transactionsData: Transaction[] = [];
+
+    const updateState = () => {
+      setState(dbService.calculateBalances(customersData, transactionsData));
+    };
+
+    const unsubCustomers = onSnapshot(customersQuery, (snapshot) => {
+      customersData = snapshot.docs.map(doc => doc.data() as Customer);
+      updateState();
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'customers'));
+
+    const unsubTransactions = onSnapshot(transactionsQuery, (snapshot) => {
+      transactionsData = snapshot.docs.map(doc => doc.data() as Transaction);
+      updateState();
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'transactions'));
+
+    return () => {
+      unsubCustomers();
+      unsubTransactions();
+    };
+  }, [user, isAuthReady]);
+
+  const login = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      console.error('Login failed:', err);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setSelectedCustomerId(null);
+      setActiveTab('home');
+    } catch (err) {
+      console.error('Logout failed:', err);
+    }
+  };
+
+  const addCustomer = async (name: string, phone: string) => {
+    if (!user) return;
     const newCustomer: Customer = {
       id: crypto.randomUUID(),
       name,
       phone,
       balance: 0,
       lastUpdated: Date.now(),
+      ownerUid: user.uid
     };
-    setState(prev => ({
-      ...prev,
-      customers: [...prev.customers, newCustomer]
-    }));
-    setIsCustomerModalOpen(false);
+    
+    try {
+      await setDoc(doc(db, 'customers', newCustomer.id), newCustomer);
+      setIsCustomerModalOpen(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `customers/${newCustomer.id}`);
+    }
   };
 
-  const handleUpdateCustomer = (id: string, name: string, phone: string) => {
-    setState(prev => ({
-      ...prev,
-      customers: prev.customers.map(c => c.id === id ? { ...c, name, phone, lastUpdated: Date.now() } : c)
-    }));
-    setIsEditCustomerModalOpen(false);
+  const handleUpdateCustomer = async (id: string, name: string, phone: string) => {
+    if (!user) return;
+    const customer = state.customers.find(c => c.id === id);
+    if (!customer) return;
+
+    const updated = { ...customer, name, phone, lastUpdated: Date.now() };
+    try {
+      await setDoc(doc(db, 'customers', id), updated);
+      setIsEditCustomerModalOpen(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `customers/${id}`);
+    }
   };
 
-  const deleteCustomer = (id: string) => {
-    setState(prev => {
-      const nextCustomers = prev.customers.filter(c => c.id !== id);
-      const nextTransactions = prev.transactions.filter(t => t.customerId !== id);
-      return dbService.calculateBalances(nextCustomers, nextTransactions);
-    });
-    setSelectedCustomerId(null);
+  const deleteCustomer = async (id: string) => {
+    if (!user) return;
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'customers', id));
+      
+      // Also delete their transactions
+      const customerTxs = state.transactions.filter(t => t.customerId === id);
+      customerTxs.forEach(tx => {
+        batch.delete(doc(db, 'transactions', tx.id));
+      });
+
+      await batch.commit();
+      setSelectedCustomerId(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `customers/${id}`);
+    }
   };
 
-  const addTransaction = (customerId: string, amount: number, type: TransactionType, note?: string, date?: string, time?: string) => {
+  const addTransaction = async (customerId: string, amount: number, type: TransactionType, note?: string, date?: string, time?: string) => {
+    if (!user) return;
     const now = new Date();
     const newTx: Transaction = {
       id: crypto.randomUUID(),
       customerId,
       amount,
       type,
-      note,
+      note: note || '',
       date: date || now.toISOString().split('T')[0],
       time: time || now.toTimeString().split(' ')[0].substring(0, 5),
       createdAt: Date.now(),
+      ownerUid: user.uid
     };
     
-    setState(prev => {
-      const nextTransactions = [...prev.transactions, newTx];
-      return dbService.calculateBalances(prev.customers, nextTransactions);
-    });
-    setIsTxModalOpen(false);
+    try {
+      await setDoc(doc(db, 'transactions', newTx.id), newTx);
+      setIsTxModalOpen(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `transactions/${newTx.id}`);
+    }
   };
 
-  const handleEditTx = (id: string, updates: Partial<Transaction>) => {
-    setState(prev => {
-      const nextTransactions = prev.transactions.map(t => t.id === id ? { ...t, ...updates } : t);
-      return dbService.calculateBalances(prev.customers, nextTransactions);
-    });
-    setIsEditModalOpen(false);
-    setEditingTransaction(null);
+  const handleEditTx = async (id: string, updates: Partial<Transaction>) => {
+    if (!user) return;
+    const tx = state.transactions.find(t => t.id === id);
+    if (!tx) return;
+
+    const updated = { ...tx, ...updates };
+    try {
+      await setDoc(doc(db, 'transactions', id), updated);
+      setIsEditModalOpen(false);
+      setEditingTransaction(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `transactions/${id}`);
+    }
   };
 
-  const deleteTransaction = (id: string) => {
-    setState(prev => {
-      const nextTransactions = prev.transactions.filter(t => t.id !== id);
-      return dbService.calculateBalances(prev.customers, nextTransactions);
-    });
+  const deleteTransaction = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'transactions', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `transactions/${id}`);
+    }
+  };
+
+  const clearAllData = async () => {
+    if (!user) return;
+    if (!confirm('আপনি কি নিশ্চিতভাবে সকল ডাটা মুছতে চান?')) return;
+
+    try {
+      const batch = writeBatch(db);
+      state.customers.forEach(c => batch.delete(doc(db, 'customers', c.id)));
+      state.transactions.forEach(t => batch.delete(doc(db, 'transactions', t.id)));
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'all');
+    }
+  };
+
+  const restoreData = async (data: AppState) => {
+    if (!user) return;
+    try {
+      const batch = writeBatch(db);
+      // Clear existing
+      state.customers.forEach(c => batch.delete(doc(db, 'customers', c.id)));
+      state.transactions.forEach(t => batch.delete(doc(db, 'transactions', t.id)));
+      
+      // Add new
+      data.customers.forEach(c => {
+        const newC = { ...c, ownerUid: user.uid };
+        batch.set(doc(db, 'customers', c.id), newC);
+      });
+      data.transactions.forEach(t => {
+        const newT = { ...t, ownerUid: user.uid };
+        batch.set(doc(db, 'transactions', t.id), newT);
+      });
+
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'restore');
+    }
+  };
+
+  const resetPin = async () => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), { pin: null }, { merge: true });
+      setUserPin(null);
+      setIsPinVerified(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
+    }
   };
 
   const openEditModal = (tx: Transaction) => {
@@ -110,6 +340,46 @@ const App: React.FC = () => {
   [selectedCustomerId, state.customers]);
 
   const renderContent = () => {
+    if (!isAuthReady || (user && isPinLoading)) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#006A4E]"></div>
+          <p className="mt-4 text-sm text-gray-500">অপেক্ষা করুন...</p>
+        </div>
+      );
+    }
+
+    if (!user) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full py-20 px-6 text-center space-y-6">
+          <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-[#006A4E]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">লগইন করুন</h2>
+          <p className="text-gray-500">আপনার ডাটা সুরক্ষিত রাখতে এবং অটো-সিঙ্ক করতে গুগল দিয়ে লগইন করুন।</p>
+          <button 
+            onClick={login}
+            className="w-full py-4 bg-white border-2 border-gray-100 rounded-2xl font-bold flex items-center justify-center gap-3 shadow-sm active:scale-95 transition-all"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
+            গুগল দিয়ে লগইন
+          </button>
+        </div>
+      );
+    }
+
+    if (!isPinVerified) {
+      return (
+        <PinEntry 
+          correctPin={userPin} 
+          onSuccess={handlePinSuccess} 
+          onLogout={logout}
+        />
+      );
+    }
+
     if (selectedCustomerId) {
       return (
         <CustomerDetail 
@@ -154,6 +424,17 @@ const App: React.FC = () => {
             customers={state.customers}
             onEditTx={openEditModal}
             onDeleteTx={deleteTransaction}
+          />
+        );
+      case 'settings':
+        return (
+          <SettingsView 
+            state={state}
+            onRestore={restoreData}
+            onClear={clearAllData}
+            user={user}
+            onLogout={logout}
+            onResetPin={resetPin}
           />
         );
       default:

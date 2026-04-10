@@ -7,6 +7,7 @@ export interface Customer {
   phone: string;
   balance: number; // Positive means they owe us (Baki), Negative means we owe them (Advance)
   lastUpdated: number;
+  ownerUid: string;
 }
 
 export interface Transaction {
@@ -18,6 +19,7 @@ export interface Transaction {
   time?: string; // HH:mm
   note?: string;
   createdAt: number;
+  ownerUid: string;
 }
 
 export interface AppState {
