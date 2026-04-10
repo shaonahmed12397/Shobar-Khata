@@ -1,4 +1,10 @@
 
+export const formatDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-');
+  return `${day}-${month}-${year}`;
+};
+
 export const formatTime12h = (time24?: string): string => {
   if (!time24) return '';
   const [hours, minutes] = time24.split(':');

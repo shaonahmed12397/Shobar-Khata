@@ -2,6 +2,7 @@
 import React from 'react';
 import { AppState, TransactionType } from '../types';
 import { TRANSLATIONS, COLORS } from '../constants';
+import { formatDate } from '../lib/utils';
 
 interface DashboardProps {
   state: AppState;
@@ -40,7 +41,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onQuickAdd }) => {
 
       {/* Today's Stats */}
       <div className="bg-[#006A4E] text-white p-6 rounded-3xl shadow-lg">
-        <h3 className="text-lg font-semibold opacity-90 mb-4">{t.today} - {today}</h3>
+        <h3 className="text-lg font-semibold opacity-90 mb-4">{t.today} - {formatDate(today)}</h3>
         <div className="flex justify-between items-center">
           <div>
             <p className="text-xs opacity-70 uppercase tracking-wider">{t.baki}</p>

@@ -19,7 +19,6 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [time, setTime] = useState(new Date().toTimeString().split(' ')[0].substring(0, 5));
 
   useEffect(() => {
     if (preSelectedCustomerId) setCustomerId(preSelectedCustomerId);
@@ -32,7 +31,7 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerId || !amount) return;
-    onSubmit(customerId, parseFloat(amount), type, note, date, time);
+    onSubmit(customerId, parseFloat(amount), type, note, date);
     // Reset
     setAmount('');
     setNote('');
@@ -80,27 +79,15 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">তারিখ</label>
-              <input 
-                type="date" 
-                className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-green-500/20"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">সময়</label>
-              <input 
-                type="time" 
-                className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-green-500/20"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                required
-              />
-            </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-gray-500 uppercase">তারিখ</label>
+            <input 
+              type="date" 
+              className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-green-500/20"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
           </div>
 
           <div className="space-y-1">

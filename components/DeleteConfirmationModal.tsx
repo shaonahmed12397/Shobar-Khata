@@ -2,7 +2,7 @@
 import React from 'react';
 import { Transaction, Customer } from '../types';
 import { TRANSLATIONS } from '../constants';
-import { formatTime12h } from '../lib/utils';
+import { formatTime12h, formatDate } from '../lib/utils';
 
 interface DeleteConfirmationModalProps {
   isOpen: boolean;
@@ -51,7 +51,7 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
             </div>
             <div className="flex justify-between items-start mb-2">
               <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">তারিখ</span>
-              <span className="text-sm text-gray-600">{transaction.date} {transaction.time && `• ${formatTime12h(transaction.time)}`}</span>
+              <span className="text-sm text-gray-600">{formatDate(transaction.date)} {transaction.time && `• ${formatTime12h(transaction.time)}`}</span>
             </div>
             {transaction.note && (
               <div className="flex justify-between items-start">

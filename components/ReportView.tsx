@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Transaction, Customer } from '../types';
 import { TRANSLATIONS } from '../constants';
-import { formatTime12h } from '../lib/utils';
+import { formatTime12h, formatDate } from '../lib/utils';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -95,7 +95,7 @@ const ReportView: React.FC<ReportViewProps> = ({ transactions, customers, onEdit
     
     // Filter Info
     doc.setFontSize(11);
-    let filterText = `Period: ${filter === 'all' ? 'All Time' : (filter === 'month' ? 'This Month' : (filter === 'today' ? 'Today' : `${startDate} to ${endDate}`))}`;
+    let filterText = `Period: ${filter === 'all' ? 'All Time' : (filter === 'month' ? 'This Month' : (filter === 'today' ? 'Today' : `${formatDate(startDate)} to ${formatDate(endDate)}`))}`;
     doc.text(filterText, 14, 30);
     
     const customerText = `Customer: ${selectedCustomerId === 'all' ? 'All Customers' : getCustomerName(selectedCustomerId)}`;
@@ -114,7 +114,7 @@ const ReportView: React.FC<ReportViewProps> = ({ transactions, customers, onEdit
       
       txs.forEach(tx => {
         tableData.push([
-          tx.date,
+          formatDate(tx.date),
           name,
           tx.type === 'CREDIT' ? 'Credit (Baki)' : 'Payment (Jama)',
           tx.amount.toLocaleString(),
@@ -242,7 +242,7 @@ const ReportView: React.FC<ReportViewProps> = ({ transactions, customers, onEdit
                   >
                     <div className="flex-1">
                       <div className="flex justify-between items-start mb-1">
-                        <p className="text-xs text-gray-400">{tx.date} {tx.time && `• ${formatTime12h(tx.time)}`}</p>
+                        <p className="text-xs text-gray-400">{formatDate(tx.date)} {tx.time && `• ${formatTime12h(tx.time)}`}</p>
                         <div className="text-right">
                            <p className="text-[10px] text-gray-400 font-bold uppercase">ব্যালেন্স</p>
                            <p className={`text-xs font-bold ${balances[tx.id] > 0 ? 'text-red-500' : (balances[tx.id] < 0 ? 'text-green-600' : 'text-gray-400')}`}>

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Customer, Transaction, TransactionType } from '../types';
 import { TRANSLATIONS } from '../constants';
-import { formatTime12h } from '../lib/utils';
+import { formatTime12h, formatDate } from '../lib/utils';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import DeleteCustomerConfirmationModal from './DeleteCustomerConfirmationModal';
 
@@ -97,7 +97,7 @@ const CustomerDetail: React.FC<CustomerDetailProps> = ({
             <div className="flex-1 bg-gray-50 rounded-2xl p-4 relative border border-transparent hover:border-gray-200 transition-colors">
               <div className="flex justify-between items-start mb-1">
                 <span className="text-xs font-medium text-gray-400">
-                  {tx.date} {tx.time && <span className="ml-1">• {formatTime12h(tx.time)}</span>}
+                  {formatDate(tx.date)} {tx.time && <span className="ml-1">• {formatTime12h(tx.time)}</span>}
                 </span>
                 <div className="flex gap-2">
                    <button 
